@@ -1,4 +1,4 @@
-from typing import Optional, Callable, Union
+from typing import Optional, Callable, Union, List
 import numpy as np
 import pandas as pd
 
@@ -85,4 +85,82 @@ class MyKMeans:
         """Предсказание кластеров для новых точек данных на основе обученной модели."""
         X = pd.DataFrame(X)
         labels = self._assign_clusters(X, self.cluster_centers_)
+        return labels
+
+
+class MyDBSCAN:
+    def __init__(self, eps: float = 3, min_samples: int = 3, metric: str = 'euclidean') -> None:
+        self.eps = eps
+        self.min_samples = min_samples
+        self.metric = metric
+        self.distance_function = self._select_metric(metric)
+
+    def __repr__(self) -> str:
+        params = ', '.join(f'{key}={value}' for key, value in self.__dict__.items())
+        return f"MyDBSCAN class: {params}"
+
+    def _select_metric(self, metric: str) -> Callable[[np.ndarray, np.ndarray], float]:
+        if metric == 'euclidean':
+            return self._euclidean_distance
+        elif metric == 'chebyshev':
+            return self._chebyshev_distance
+        elif metric == 'manhattan':
+            return self._manhattan_distance
+        elif metric == 'cosine':
+            return self._cosine_distance
+        else:
+            raise ValueError("Unsupported metric. Choose from: 'euclidean', 'chebyshev', 'manhattan', 'cosine'.")
+
+    def _euclidean_distance(self, point1: np.ndarray, point2: np.ndarray) -> float:
+        return np.sqrt(np.sum((point1 - point2) ** 2))
+
+    def _chebyshev_distance(self, point1: np.ndarray, point2: np.ndarray) -> float:
+        return np.max(np.abs(point1 - point2))
+
+    def _manhattan_distance(self, point1: np.ndarray, point2: np.ndarray) -> float:
+        return np.sum(np.abs(point1 - point2))
+
+    def _cosine_distance(self, point1: np.ndarray, point2: np.ndarray) -> float:
+        dot_product = np.dot(point1, point2)
+        norm1 = np.linalg.norm(point1)
+        norm2 = np.linalg.norm(point2)
+        return 1 - (dot_product / (norm1 * norm2))
+
+    def region_query(self, X: np.ndarray, point_idx: int) -> List[int]:
+        neighbors = []
+        for idx in range(len(X)):
+            if idx != point_idx and self.distance_function(X[point_idx], X[idx]) <= self.eps:
+                neighbors.append(idx)
+        return neighbors
+
+    def expand_cluster(self, X: np.ndarray, labels: List[int], point_idx: int, neighbors: List[int], cluster_id: int) -> None:
+        labels[point_idx] = cluster_id
+        i = 0
+        while i < len(neighbors):
+            neighbor_idx = neighbors[i]
+            if labels[neighbor_idx] == -1:
+                labels[neighbor_idx] = cluster_id
+            elif labels[neighbor_idx] == 0:
+                labels[neighbor_idx] = cluster_id
+                new_neighbors = self.region_query(X, neighbor_idx)
+                if len(new_neighbors) >= self.min_samples - 1:
+                    neighbors.extend(new_neighbors)
+            i += 1
+
+    def fit_predict(self, X: pd.DataFrame) -> List[int]:
+        X = X.to_numpy()
+        labels = [0] * len(X)
+        cluster_id = 0
+
+        for point_idx in range(len(X)):
+            if labels[point_idx] != 0:
+                continue
+
+            neighbors = self.region_query(X, point_idx)
+            if len(neighbors) < self.min_samples - 1:
+                labels[point_idx] = -1
+            else:
+                cluster_id += 1
+                self.expand_cluster(X, labels, point_idx, neighbors, cluster_id)
+
         return labels
